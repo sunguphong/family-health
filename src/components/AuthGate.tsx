@@ -82,8 +82,8 @@ export function AuthGate({ children }: { children: ReactNode }) {
   );
 }
 
+/** 로그인만 제공. 계정은 관리자가 Supabase 관리 화면에서 만들고, 서버 설정으로 가입도 막아 둔다 */
 function LoginForm({ onDone }: { onDone: (userId: string, email: string) => void }) {
-  const [mode, setMode] = useState<'in' | 'up'>('in');
   const [email, setEmail] = useState('');
   const [pw, setPw] = useState('');
   const [busy, setBusy] = useState(false);
@@ -94,20 +94,9 @@ function LoginForm({ onDone }: { onDone: (userId: string, email: string) => void
     setBusy(true);
     setMsg('');
     try {
-      const auth = supabase().auth;
-      if (mode === 'in') {
-        const { data, error } = await auth.signInWithPassword({ email, password: pw });
-        if (error) throw new Error(error.message === 'Invalid login credentials' ? '이메일 또는 비밀번호가 맞지 않습니다.' : error.message);
-        onDone(data.user.id, data.user.email ?? email);
-      } else {
-        const { data, error } = await auth.signUp({ email, password: pw, options: { emailRedirectTo: location.origin + location.pathname } });
-        if (error) throw new Error(error.message);
-        if (data.session && data.user) onDone(data.user.id, data.user.email ?? email);
-        else {
-          setMode('in');
-          setMsg('가입 확인 메일을 보냈습니다. 메일의 링크를 누른 뒤 로그인해 주세요.');
-        }
-      }
+      const { data, error } = await supabase().auth.signInWithPassword({ email, password: pw });
+      if (error) throw new Error(error.message === 'Invalid login credentials' ? '이메일 또는 비밀번호가 맞지 않습니다.' : error.message);
+      onDone(data.user.id, data.user.email ?? email);
     } catch (err) {
       setMsg((err as Error).message);
     } finally {
@@ -118,19 +107,17 @@ function LoginForm({ onDone }: { onDone: (userId: string, email: string) => void
   return (
     <form className="stack" onSubmit={submit}>
       <div>
-        <h2>{mode === 'in' ? '로그인' : '계정 만들기'}</h2>
+        <h2>로그인</h2>
         <p className="small muted" style={{ marginTop: 4 }}>어느 컴퓨터·휴대폰에서든 같은 계정으로 로그인하면 기록이 이어집니다.</p>
       </div>
       <label className="field"><span>이메일</span><input className="input" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></label>
       <label className="field">
         <span>로그인 비밀번호</span>
-        <input className="input" type="password" autoComplete={mode === 'in' ? 'current-password' : 'new-password'} minLength={8} required value={pw} onChange={(e) => setPw(e.target.value)} />
+        <input className="input" type="password" autoComplete="current-password" required value={pw} onChange={(e) => setPw(e.target.value)} />
       </label>
       {msg && <div className="notice warn" style={{ margin: 0 }}>{msg}</div>}
-      <button className="btn primary" disabled={busy}>{busy ? '확인 중…' : mode === 'in' ? '로그인' : '가입하기'}</button>
-      <button type="button" className="btn ghost sm" onClick={() => { setMode(mode === 'in' ? 'up' : 'in'); setMsg(''); }}>
-        {mode === 'in' ? '처음이신가요? 계정 만들기' : '이미 계정이 있어요 · 로그인'}
-      </button>
+      <button className="btn primary" disabled={busy}>{busy ? '확인 중…' : '로그인'}</button>
+      <p className="small muted" style={{ textAlign: 'center' }}>계정 발급·비밀번호 초기화는 관리자에게 요청해 주세요.</p>
     </form>
   );
 }

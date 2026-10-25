@@ -53,3 +53,20 @@ https://sunguphong.github.io/family-health/
 
 - 코드를 고친 뒤 `npm run deploy`를 실행하면 `gh-pages` 브랜치로 배포되고, 1~2분 뒤 위 주소에 반영됩니다.
 - 저장소에는 앱 코드만 있습니다. 건강 기록·API 키는 각 브라우저에만 저장되므로, 기기·주소가 바뀌면 설정의 백업·복원으로 옮기세요.
+
+## 서버 저장(Supabase)과 사용자 관리
+
+앱에는 가입 기능이 없고 **로그인만** 있습니다. 계정은 관리자(Supabase 프로젝트 소유자)만 만들고 지울 수 있습니다.
+
+### 처음 설정 (관리자, 한 번)
+1. Supabase 프로젝트를 만들고(Region: Seoul) **SQL Editor**에서 `supabase/setup.sql` 전체를 실행합니다.
+2. `src/config.ts`에 Project URL과 anon(publishable) 키를 넣고 `npm run deploy` 합니다.
+3. **Authentication → Sign In / Providers → Email**에서 **Allow new users to sign up을 끕니다.**
+   앱에 가입 버튼이 없어도, 이 설정을 꺼야 다른 경로로도 가입할 수 없습니다.
+4. **Authentication → URL Configuration**의 Site URL을 `https://sunguphong.github.io/family-health/`로 둡니다.
+
+### 사용자 추가·삭제 (관리자)
+- **추가:** Authentication → Users → **Add user → Create new user**에서 이메일·임시 비밀번호를 넣고 **Auto Confirm User**를 체크합니다.
+- **비밀번호 초기화:** 같은 화면에서 해당 사용자의 비밀번호를 새로 정하거나 **Send password recovery**를 보냅니다.
+- **삭제:** 사용자 행의 메뉴 → **Delete user**. 그 사람의 서버 기록도 함께 지워집니다.
+- 계정마다 기록과 데이터 비밀번호가 따로입니다. 다른 사람의 기록은 관리자도 열어 볼 수 없습니다(암호화).
