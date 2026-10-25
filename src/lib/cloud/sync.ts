@@ -142,7 +142,7 @@ async function rekeyLocal() {
       const id = newId();
       mMap.set(m.id!, id);
       await db.members.delete(m.id!);
-      await db.members.add({ ...m, id, _m: undefined } as never);
+      await db.members.add({ ...m, id, _m: Date.now() } as never);
     }
     for (const e of await db.exams.toArray()) {
       const memberId = mMap.get(e.memberId) ?? e.memberId;
@@ -150,25 +150,25 @@ async function rekeyLocal() {
       const id = isGlobalId(e.id!) ? e.id! : newId();
       if (id !== e.id) eMap.set(e.id!, id);
       await db.exams.delete(e.id!);
-      await db.exams.add({ ...e, id, memberId, _m: undefined } as never);
+      await db.exams.add({ ...e, id, memberId, _m: Date.now() } as never);
     }
     for (const r of await db.results.toArray()) {
       const examId = eMap.get(r.examId) ?? r.examId;
       if (isGlobalId(r.id!) && examId === r.examId) continue;
       await db.results.delete(r.id!);
-      await db.results.add({ ...r, id: isGlobalId(r.id!) ? r.id : newId(), examId, _m: undefined } as never);
+      await db.results.add({ ...r, id: isGlobalId(r.id!) ? r.id : newId(), examId, _m: Date.now() } as never);
     }
     for (const f of await db.files.toArray()) {
       const examId = eMap.get(f.examId) ?? f.examId;
       if (isGlobalId(f.id!) && examId === f.examId) continue;
       await db.files.delete(f.id!);
-      await db.files.add({ ...f, id: isGlobalId(f.id!) ? f.id : newId(), examId, _m: undefined } as never);
+      await db.files.add({ ...f, id: isGlobalId(f.id!) ? f.id : newId(), examId, _m: Date.now() } as never);
     }
     for (const [oldId, id] of mMap) {
       const s = await db.settings.get(`advice:${oldId}`);
       if (s) {
         await db.settings.delete(s.key);
-        await db.settings.put({ ...s, key: `advice:${id}`, _m: undefined } as never);
+        await db.settings.put({ ...s, key: `advice:${id}`, _m: Date.now() } as never);
       }
     }
     try {
@@ -189,7 +189,12 @@ async function dropSampleData() {
     await db.results.where('examId').anyOf(ids).delete();
     await db.files.where('examId').anyOf(ids).delete();
     await db.exams.bulkDelete(ids);
-    await db.members.bulkDelete((await db.members.filter((m) => !!m.isSample).toArray()).map((m) => m.id!));
+    // 샘플 구성원에 실제 검진을 올려 둔 경우 그 구성원은 일반 구성원으로 남긴다
+    for (const m of await db.members.filter((x) => !!x.isSample).toArray()) {
+      const real = await db.exams.where('memberId').equals(m.id!).count();
+      if (real) await db.members.put({ ...m, isSample: false, name: m.name.replace(/\s*\(샘플\)$/, '') });
+      else await db.members.delete(m.id!);
+    }
   });
 }
 
@@ -259,6 +264,17 @@ async function push() {
     for (let i = 0; i < out.length; i += 200) {
       const { error } = await sb.from('records').upsert(out.slice(i, i + 200), { onConflict: 'user_id,kind,id' });
       if (error) throw new Error(`서버 저장 실패: ${error.message}`);
+    }
+    // 수정 시각이 없던 기록(동기화 이전 버전에서 만든 것)은 올린 뒤 '맞춰짐'으로 표시해 둔다.
+    // 그러지 않으면 계속 '이 기기에서 바뀜'으로 보여 다른 기기의 수정을 덮어쓴다.
+    const unstamped = rows.filter((r) => r._m === undefined).map((r) => pkOf(kind, r));
+    if (unstamped.length) {
+      const table = db.table(kind);
+      await applyRemote(table, async () => {
+        for (const id of unstamped) {
+          await table.update(kind === 'items' || kind === 'settings' ? id : Number(id), { _m: 1 });
+        }
+      });
     }
   }
 
