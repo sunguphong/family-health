@@ -20,9 +20,66 @@ db.version(1).stores({
   settings: 'key',
 });
 
+// v2: 동기화를 위해 수정 시각(_m) 색인 추가
+db.version(2).stores({
+  members: '++id, _m',
+  items: 'code, group, order, _m',
+  exams: '++id, memberId, date, _m',
+  results: '++id, examId, itemCode, _m',
+  files: '++id, examId, _m',
+  settings: 'key, _m',
+});
+
 db.on('populate', async (tx) => {
   await tx.table('items').bulkAdd(DEFAULT_ITEMS);
 });
+
+/**
+ * 여러 기기에서 만든 기록이 섞여도 겹치지 않는 숫자 ID (시각 기반 + 난수, 2^53 미만).
+ * 1~2자리 자동 번호는 기기마다 겹치므로 동기화에는 쓸 수 없다.
+ */
+export const newId = () => Date.now() * 1000 + Math.floor(Math.random() * 1000);
+export const isGlobalId = (id: number) => id > 1e14;
+
+export type SyncKind = 'members' | 'items' | 'exams' | 'results' | 'files' | 'settings';
+export const SYNC_TABLES: SyncKind[] = ['members', 'items', 'exams', 'results', 'files', 'settings'];
+
+/** 동기화 모듈이 바뀐 기록을 알 수 있도록 하는 연결점 */
+export const changeListeners = {
+  onLocalChange: (_kind: SyncKind) => {},
+  onLocalDelete: (_kind: SyncKind, _id: string) => {},
+};
+
+/** 서버에서 받은 내용을 반영하는 트랜잭션 표시 (이때는 '바뀜'으로 기록하지 않음) */
+export const REMOTE = Symbol('remote');
+type Tx = { [REMOTE]?: boolean; on: (ev: 'complete', fn: () => void) => void };
+
+for (const kind of SYNC_TABLES) {
+  const table = db.table(kind);
+  const autoId = kind === 'members' || kind === 'exams' || kind === 'results' || kind === 'files';
+  table.hook('creating', function (primKey, obj, tx) {
+    const t = tx as unknown as Tx;
+    if (t[REMOTE]) return undefined;
+    obj._m = Date.now();
+    t.on('complete', () => changeListeners.onLocalChange(kind));
+    if (autoId && primKey == null) {
+      obj.id = newId();
+      return obj.id;
+    }
+    return undefined;
+  });
+  table.hook('updating', function (_mods, _primKey, _obj, tx) {
+    const t = tx as unknown as Tx;
+    if (t[REMOTE]) return undefined;
+    t.on('complete', () => changeListeners.onLocalChange(kind));
+    return { _m: Date.now() };
+  });
+  table.hook('deleting', function (primKey, _obj, tx) {
+    const t = tx as unknown as Tx;
+    if (t[REMOTE]) return;
+    t.on('complete', () => changeListeners.onLocalDelete(kind, String(primKey)));
+  });
+}
 
 /** 업로드 화면에 미리 채워 둘 검진기관 (설정에서 변경 가능) */
 export const DEFAULT_INSTITUTION = '하나로의료재단';

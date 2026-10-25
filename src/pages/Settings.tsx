@@ -9,6 +9,8 @@ import { useItems } from '../lib/hooks';
 import { DEFAULT_ITEMS } from '../lib/items';
 import { hasSampleData, loadSampleData, removeSampleData } from '../lib/sample';
 import { rangeText } from '../lib/status';
+import { cloudEnabled } from '../config';
+import { replaceRemoteWithLocal, signOutAndWipe, supabase, syncNow, useSyncStatus, wipeRemote } from '../lib/cloud/sync';
 import { GROUPS, type ItemDef, type Member, type Range, type RangeSet, type Sex } from '../lib/types';
 
 export default function Settings() {
@@ -16,6 +18,7 @@ export default function Settings() {
     <>
       <div className="page-head"><div><div className="eyebrow">SETTINGS</div><h1>설정</h1></div></div>
       <div className="stack">
+        {cloudEnabled && <AccountSection />}
         <MembersSection />
         <UploadDefaultsSection />
         <AiSection />
@@ -23,6 +26,46 @@ export default function Settings() {
         <DataSection />
       </div>
     </>
+  );
+}
+
+/* ---------------- 계정·동기화 ---------------- */
+function AccountSection() {
+  const s = useSyncStatus();
+  const [email, setEmail] = useState('');
+  useEffect(() => {
+    supabase().auth.getUser().then(({ data }) => setEmail(data.user?.email ?? ''));
+  }, []);
+  return (
+    <section className="card">
+      <div className="card-title"><h2>계정 · 동기화</h2></div>
+      <div className="stack" style={{ gap: 10 }}>
+        <div className="row">
+          <span className="badge none">{email || '로그인됨'}</span>
+          <span className="small muted">
+            {s.state === 'syncing' ? s.message ?? '동기화 중…'
+              : s.state === 'error' ? `오류: ${s.message}`
+              : s.state === 'offline' ? '오프라인'
+              : s.lastSyncAt ? `마지막 동기화 ${new Date(s.lastSyncAt).toLocaleString('ko-KR')}` : '연결됨'}
+          </span>
+        </div>
+        <p className="small muted">
+          기록은 이 기기에서 데이터 비밀번호로 암호화된 뒤 서버(Supabase)에 저장되고, 같은 계정으로 로그인한 기기끼리 자동으로 맞춰집니다.
+          데이터 비밀번호는 서버에 저장되지 않으니 잊어버리지 않게 보관하세요.
+        </p>
+        <div className="row">
+          <button className="btn" disabled={s.state === 'syncing'} onClick={() => syncNow().catch(() => {})}>지금 동기화</button>
+          <button
+            className="btn danger"
+            onClick={() => {
+              if (confirm('로그아웃하면 이 기기에 남은 사본을 지웁니다. 서버의 기록은 그대로 남아 다시 로그인하면 불러옵니다. 계속할까요?')) signOutAndWipe();
+            }}
+          >
+            로그아웃
+          </button>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -389,6 +432,10 @@ function DataSection() {
               if (!f || !confirm('지금 기기의 모든 기록을 백업 파일 내용으로 바꿉니다. 계속할까요?')) return;
               try {
                 await importBackup(f);
+                if (cloudEnabled) {
+                  setMsg('복원했습니다. 서버에도 반영하는 중…');
+                  await replaceRemoteWithLocal();
+                }
                 setMsg('복원했습니다.');
               } catch (err) {
                 setMsg(`복원 실패: ${(err as Error).message}`);
@@ -401,7 +448,16 @@ function DataSection() {
           <button
             className="btn danger"
             onClick={async () => {
-              if (!confirm('모든 구성원, 검진 기록, 원본 이미지, 설정(API 키 포함)을 이 기기에서 삭제합니다. 되돌릴 수 없습니다. 계속할까요?')) return;
+              const where = cloudEnabled ? '서버와 이 기기에서' : '이 기기에서';
+              if (!confirm(`모든 구성원, 검진 기록, 원본 이미지, 설정(API 키 포함)을 ${where} 삭제합니다. 되돌릴 수 없습니다. 계속할까요?`)) return;
+              if (cloudEnabled) {
+                try {
+                  await wipeRemote();
+                } catch (err) {
+                  alert(`서버 기록을 지우지 못했습니다: ${(err as Error).message}`);
+                  return;
+                }
+              }
               await db.delete();
               try {
                 localStorage.setItem('noSampleSeed', '1');

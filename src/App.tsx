@@ -3,6 +3,9 @@ import { NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import { db, getSetting, setSetting } from './lib/db';
 import { loadSampleData } from './lib/sample';
 import { MemberProvider } from './lib/member';
+import { AuthGate } from './components/AuthGate';
+import { SyncPill } from './components/SyncPill';
+import { cloudEnabled } from './config';
 import Dashboard from './pages/Dashboard';
 import Records from './pages/Records';
 import ExamDetail from './pages/ExamDetail';
@@ -26,7 +29,8 @@ export default function App() {
 
   // 처음 실행하면 시연용 샘플 데이터를 한 번 넣어 준다
   useEffect(() => {
-    if (seedStarted) return;
+    // 서버 저장 모드에서는 샘플을 자동으로 넣지 않는다 (설정에서 직접 불러올 수 있음)
+    if (seedStarted || cloudEnabled) return;
     seedStarted = true;
     (async () => {
       if (await getSetting('seeded', false)) return;
@@ -42,6 +46,7 @@ export default function App() {
   }, []);
 
   return (
+    <AuthGate>
     <MemberProvider>
       <div className="app">
         {!printing && (
@@ -56,7 +61,7 @@ export default function App() {
                 {n.label}
               </NavLink>
             ))}
-            <div className="sidebar-foot"><IconShield />모든 기록은 이 기기의 브라우저 안에만 저장됩니다.</div>
+            {cloudEnabled ? <SyncPill /> : <div className="sidebar-foot"><IconShield />모든 기록은 이 기기의 브라우저 안에만 저장됩니다.</div>}
           </nav>
         )}
         <main className="main" style={printing ? { maxWidth: 'none', padding: 0 } : undefined}>
@@ -71,5 +76,6 @@ export default function App() {
         </main>
       </div>
     </MemberProvider>
+    </AuthGate>
   );
 }
