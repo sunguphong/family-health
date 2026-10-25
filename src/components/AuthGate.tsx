@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { cloudEnabled } from '../config';
-import { createVault, getVault, initialSync, setSessionUser, signOutAndWipe, startAutoSync, supabase, tryRememberedKey, unlock } from '../lib/cloud/sync';
+import { createVault, getVault, initialSync, needsFullDownload, setSessionUser, signOutAndWipe, startAutoSync, supabase, tryRememberedKey, unlock, useSyncStatus } from '../lib/cloud/sync';
 import { IconPulse, IconShield } from './Icons';
 
 type Phase = 'loading' | 'login' | 'create-pass' | 'enter-pass' | 'syncing' | 'ready';
@@ -24,6 +24,14 @@ export function AuthGate({ children }: { children: ReactNode }) {
   };
 
   const finish = async () => {
+    // 이 기기에 이미 사본이 있으면 바로 열고, 바뀐 내용만 뒤에서 받아 온다
+    if (!(await needsFullDownload())) {
+      startAutoSync();
+      setPhase('ready');
+      initialSync(() => {}).catch(() => {});
+      return;
+    }
+    // 처음 쓰는 기기: 전체를 내려받을 때까지 기다린다
     setPhase('syncing');
     try {
       await initialSync(setMsg);
@@ -69,9 +77,10 @@ export function AuthGate({ children }: { children: ReactNode }) {
         )}
         {phase === 'syncing' && (
           <div className="stack">
-            <h2>기록을 불러오는 중</h2>
+            <h2>이 기기에 기록을 내려받는 중</h2>
             <div className="progress indeterminate"><div /></div>
-            <p className="small muted">{msg || '서버와 동기화하는 중…'}</p>
+            <SyncProgress fallback={msg} />
+            <p className="small muted">이 기기에서 처음 한 번만 전체를 받습니다. 다음부터는 바로 열립니다.</p>
           </div>
         )}
       </div>
@@ -173,4 +182,9 @@ function PassForm({ create, email, error, onDone }: { create: boolean; email: st
       <button type="button" className="btn ghost sm" onClick={() => signOutAndWipe()}>다른 계정으로 로그인</button>
     </form>
   );
+}
+
+function SyncProgress({ fallback }: { fallback: string }) {
+  const s = useSyncStatus();
+  return <p className="small" style={{ color: 'var(--ink-2)' }}>{s.message || fallback || '서버와 동기화하는 중…'}</p>;
 }

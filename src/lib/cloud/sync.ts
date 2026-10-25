@@ -198,6 +198,11 @@ async function dropSampleData() {
   });
 }
 
+/** 이 기기에 이 계정의 사본이 아직 없어서, 전부 내려받을 때까지 기다려야 하는지 */
+export async function needsFullDownload(): Promise<boolean> {
+  return (await getMeta<string | null>('userId', null)) !== userId || (await getMeta<string | null>('lastPull', null)) == null;
+}
+
 /** 로그인·잠금 해제 직후 한 번. 이 기기의 기존 기록을 서버 기록과 합친다 */
 export async function initialSync(progress: (msg: string) => void) {
   const lastUser = await getMeta<string | null>('userId', null);
@@ -248,15 +253,16 @@ async function push() {
       delete value._m;
       if (kind === 'files') {
         const pages = (row.pages as Blob[]) ?? [];
-        for (let i = 0; i < pages.length; i++) {
-          setStatus({ message: `원본 이미지 올리는 중 (${i + 1}/${pages.length})` });
+        let done = 0;
+        await pool(pages.map((_, i) => i), 4, async (i) => {
           const body = await encryptBytes(key, new Uint8Array(await pages[i].arrayBuffer()));
           const { error } = await sb.storage.from('pages').upload(pagePath(id, i), new Blob([body as BlobPart]), {
             upsert: true,
             contentType: 'application/octet-stream',
           });
           if (error) throw new Error(`원본 이미지 업로드 실패: ${error.message}`);
-        }
+          setStatus({ message: `원본 이미지 올리는 중 (${++done}/${pages.length}장)` });
+        });
         value = { ...value, pages: undefined, pageCount: pages.length };
       }
       out.push({ user_id: userId!, kind, id, data: await encryptJson(key, value), deleted: false });
@@ -294,12 +300,23 @@ async function push() {
   await setMeta('lastPush', startedAt);
 }
 
+/** 동시에 n개씩 처리 (원본 이미지 내려받기 속도용) */
+async function pool<T>(items: T[], n: number, fn: (item: T) => Promise<void>) {
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => {
+    while (i < items.length) await fn(items[i++]);
+  }));
+}
+
+type RemoteRow = { kind: SyncKind; id: string; data: string | null; deleted: boolean; updated_at: string };
+
 async function pull() {
   const key = cryptoKey!;
   const sb = supabase();
   const lastPush = await getMeta<number>('lastPush', 0);
   const firstSync = await getMeta<boolean>('firstSync', false);
   let cursor = await getMeta<string | null>('lastPull', null);
+  let received = 0;
 
   for (;;) {
     let q = sb.from('records').select('kind, id, data, deleted, updated_at').order('updated_at').limit(500);
@@ -307,38 +324,65 @@ async function pull() {
     const { data, error } = await q;
     if (error) throw new Error(`서버에서 받기 실패: ${error.message}`);
     if (!data?.length) break;
+    const batch = data as RemoteRow[];
+    received += batch.length;
+    setStatus({ message: `기록 받는 중 (${received}건)` });
 
-    for (const r of data as { kind: SyncKind; id: string; data: string | null; deleted: boolean; updated_at: string }[]) {
-      cursor = r.updated_at;
-      if (!SYNC_TABLES.includes(r.kind)) continue;
-      const table = db.table(r.kind);
-      const pk = r.kind === 'items' || r.kind === 'settings' ? r.id : Number(r.id);
-      const local = (await table.get(pk)) as Row | undefined;
-      // 아직 올리지 않은 이 기기의 변경이 있으면 그쪽을 살린다 (처음 동기화 때는 서버 우선)
-      if (!firstSync && local && (local._m === undefined || local._m > lastPush)) continue;
+    for (const kind of SYNC_TABLES) {
+      const rows = batch.filter((r) => r.kind === kind);
+      if (!rows.length) continue;
+      const table = db.table(kind);
+      const pkOfRow = (r: RemoteRow) => (kind === 'items' || kind === 'settings' ? r.id : Number(r.id));
+      const locals = (await table.bulkGet(rows.map(pkOfRow))) as (Row | undefined)[];
+      const puts: Row[] = [];
+      const dels: (string | number)[] = [];
+      const files: { row: RemoteRow; value: Row }[] = [];
 
-      if (r.deleted || !r.data) {
-        if (local) await applyRemote(table, async () => table.delete(pk));
-        continue;
-      }
-      const value = await decryptJson<Row>(key, r.data);
-      if (r.kind === 'files') {
-        const n = Number(value.pageCount ?? 0);
-        const pages: Blob[] = [];
-        for (let i = 0; i < n; i++) {
-          setStatus({ message: `원본 이미지 받는 중 (${i + 1}/${n})` });
-          const { data: blob, error: e2 } = await sb.storage.from('pages').download(pagePath(r.id, i));
+      await Promise.all(
+        rows.map(async (r, idx) => {
+          const local = locals[idx];
+          // 아직 올리지 않은 이 기기의 변경이 있으면 그쪽을 살린다 (처음 동기화 때는 서버 우선)
+          if (!firstSync && local && (local._m === undefined || local._m > lastPush)) return;
+          if (r.deleted || !r.data) {
+            if (local) dels.push(pkOfRow(r));
+            return;
+          }
+          const value = await decryptJson<Row>(key, r.data);
+          value._m = 0;
+          if (kind === 'files') files.push({ row: r, value });
+          else puts.push(value);
+        }),
+      );
+
+      // 원본 이미지는 여러 장을 동시에 받는다
+      if (files.length) {
+        const jobs = files.flatMap(({ row, value }) => {
+          const n = Number(value.pageCount ?? 0);
+          value.pages = new Array<Blob>(n);
+          delete value.pageCount;
+          return Array.from({ length: n }, (_, i) => ({ id: row.id, i, value }));
+        });
+        let done = 0;
+        await pool(jobs, 6, async (job) => {
+          const { data: blob, error: e2 } = await sb.storage.from('pages').download(pagePath(job.id, job.i));
           if (e2 || !blob) throw new Error(`원본 이미지를 받지 못했습니다: ${e2?.message ?? ''}`);
-          pages.push(new Blob([(await decryptBytes(key, new Uint8Array(await blob.arrayBuffer()))) as BlobPart], { type: 'image/jpeg' }));
-        }
-        value.pages = pages;
-        delete value.pageCount;
+          const plain = await decryptBytes(key, new Uint8Array(await blob.arrayBuffer()));
+          (job.value.pages as Blob[])[job.i] = new Blob([plain as BlobPart], { type: 'image/jpeg' });
+          setStatus({ message: `원본 이미지 받는 중 (${++done}/${jobs.length}장)` });
+        });
+        puts.push(...files.map((f) => f.value));
       }
-      value._m = 0;
-      await applyRemote(table, async () => table.put(value));
+
+      if (puts.length || dels.length) {
+        await applyRemote(table, async () => {
+          if (dels.length) await table.bulkDelete(dels);
+          if (puts.length) await table.bulkPut(puts);
+        });
+      }
     }
+    cursor = batch[batch.length - 1].updated_at;
     await setMeta('lastPull', cursor);
-    if (data.length < 500) break;
+    if (batch.length < 500) break;
   }
 }
 
