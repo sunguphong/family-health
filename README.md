@@ -46,3 +46,10 @@ src/lib/extract/          pages(PDF/OCR) · mask(식별정보 가림) · parse(�
 src/lib/export.ts         CSV·엑셀·백업
 src/pages/                대시보드·기록·상세·업로드·설정·인쇄 요약
 ```
+
+## 온라인 주소 (GitHub Pages)
+
+https://sunguphong.github.io/family-health/
+
+- 코드를 고친 뒤 `npm run deploy`를 실행하면 `gh-pages` 브랜치로 배포되고, 1~2분 뒤 위 주소에 반영됩니다.
+- 저장소에는 앱 코드만 있습니다. 건강 기록·API 키는 각 브라우저에만 저장되므로, 기기·주소가 바뀌면 설정의 백업·복원으로 옮기세요.
