@@ -1,7 +1,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import Dexie, { type Table } from 'dexie';
 import { useSyncExternalStore } from 'react';
-import { SUPABASE_ANON_KEY, SUPABASE_URL, cloudEnabled } from '../../config';
+import { ADMIN_EMAILS, SUPABASE_ANON_KEY, SUPABASE_URL, cloudEnabled } from '../../config';
 import { changeListeners, db, isGlobalId, newId, REMOTE, SYNC_TABLES, type SyncKind } from '../db';
 import { checkVerifier, decryptBytes, decryptJson, deriveKey, encryptBytes, encryptJson, makeVerifier, newSalt } from './crypto';
 
@@ -102,8 +102,15 @@ export const isUnlocked = () => !!cryptoKey;
 /* 로그인                                                              */
 /* ------------------------------------------------------------------ */
 
-export function setSessionUser(id: string | null) {
+let userEmail: string | null = null;
+export const getUserEmail = () => userEmail;
+
+/** 관리자 메뉴를 보여 줄지 (서버 저장 모드가 아니면 이 기기 사용자가 곧 관리자) */
+export const isAdmin = () => !cloudEnabled || (!!userEmail && ADMIN_EMAILS.includes(userEmail.toLowerCase()));
+
+export function setSessionUser(id: string | null, email: string | null = null) {
   userId = id;
+  userEmail = email;
   if (!id) cryptoKey = null;
 }
 

@@ -26,3 +26,4 @@ export const IconArrowRight = () => <Svg><path d="M5 12h14M13 6l6 6-6 6" /></Svg
 export const IconChevronLeft = () => <Svg><path d="m15 6-6 6 6 6" /></Svg>;
 export const IconPlus = () => <Svg><path d="M12 5v14M5 12h14" /></Svg>;
 export const IconSparkle = () => <Svg><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6" /></Svg>;
+export const IconServer = () => <Svg><rect x="3" y="4" width="18" height="7" rx="2" /><rect x="3" y="13" width="18" height="7" rx="2" /><path d="M7 7.5h.01M7 16.5h.01" /></Svg>;

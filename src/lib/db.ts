@@ -38,7 +38,13 @@ db.on('populate', async (tx) => {
  * 여러 기기에서 만든 기록이 섞여도 겹치지 않는 숫자 ID (시각 기반 + 난수, 2^53 미만).
  * 1~2자리 자동 번호는 기기마다 겹치므로 동기화에는 쓸 수 없다.
  */
-export const newId = () => Date.now() * 1000 + Math.floor(Math.random() * 1000);
+let lastId = 0;
+export const newId = () => {
+  // 같은 1ms 안에 여러 개를 만들어도 겹치지 않도록 항상 직전 값보다 크게 (기기 간 충돌은 난수로 피함)
+  const candidate = Date.now() * 1000 + Math.floor(Math.random() * 1000);
+  lastId = Math.max(candidate, lastId + 1);
+  return lastId;
+};
 export const isGlobalId = (id: number) => id > 1e14;
 
 export type SyncKind = 'members' | 'items' | 'exams' | 'results' | 'files' | 'settings';

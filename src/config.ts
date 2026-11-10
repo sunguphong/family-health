@@ -7,3 +7,6 @@ export const SUPABASE_URL = 'https://ttkqsvrzvmvciefxsffr.supabase.co';
 export const SUPABASE_ANON_KEY = 'sb_publishable_ljEHEOlw1PDXQAa1y84uXw_WQ_ADJzi';
 
 export const cloudEnabled = !!(SUPABASE_URL && SUPABASE_ANON_KEY);
+
+/** 관리자 메뉴(인프라 구성도 등)를 볼 수 있는 계정. 서버 저장 모드가 아니면 누구나 관리자 */
+export const ADMIN_EMAILS = ['upsan77@naver.com'];

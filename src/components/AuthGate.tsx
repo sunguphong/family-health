@@ -12,7 +12,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const [msg, setMsg] = useState('');
 
   const afterLogin = async (uid: string, mail: string) => {
-    setSessionUser(uid);
+    setSessionUser(uid, mail);
     setEmail(mail);
     try {
       if (await tryRememberedKey()) return await finish();

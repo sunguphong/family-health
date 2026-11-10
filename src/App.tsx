@@ -12,7 +12,9 @@ import ExamDetail from './pages/ExamDetail';
 import Upload from './pages/Upload';
 import Settings from './pages/Settings';
 import PrintSummary from './pages/PrintSummary';
-import { IconHome, IconList, IconPulse, IconSettings, IconShield, IconUpload } from './components/Icons';
+import Admin from './pages/Admin';
+import { isAdmin } from './lib/cloud/sync';
+import { IconHome, IconList, IconPulse, IconSettings, IconShield, IconServer, IconUpload } from './components/Icons';
 
 const NAV = [
   { to: '/', label: '대시보드', icon: <IconHome /> },
@@ -55,7 +57,7 @@ export default function App() {
               <span className="brand-mark"><IconPulse /></span>
               <span>우리집 건강검진<small>Family Health Record</small></span>
             </div>
-            {NAV.map((n) => (
+            {[...NAV, ...(isAdmin() ? [{ to: '/admin', label: '관리자', icon: <IconServer /> }] : [])].map((n) => (
               <NavLink key={n.to} to={n.to} end={n.to === '/'} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
                 {n.icon}
                 {n.label}
@@ -71,6 +73,7 @@ export default function App() {
             <Route path="/records/:id" element={<ExamDetail />} />
             <Route path="/upload" element={<Upload />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/admin" element={<Admin />} />
             <Route path="/print/:memberId" element={<PrintSummary />} />
           </Routes>
         </main>
