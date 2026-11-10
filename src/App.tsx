@@ -57,12 +57,13 @@ export default function App() {
               <span className="brand-mark"><IconPulse /></span>
               <span>우리집 건강검진<small>Family Health Record</small></span>
             </div>
-            {[...NAV, ...(isAdmin() ? [{ to: '/admin', label: '관리자', icon: <IconServer /> }] : [])].map((n) => (
+            {NAV.map((n) => (
               <NavLink key={n.to} to={n.to} end={n.to === '/'} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
                 {n.icon}
                 {n.label}
               </NavLink>
             ))}
+            <AdminNavLink />
             {cloudEnabled ? <SyncPill /> : <div className="sidebar-foot"><IconShield />모든 기록은 이 기기의 브라우저 안에만 저장됩니다.</div>}
           </nav>
         )}
@@ -80,5 +81,19 @@ export default function App() {
       </div>
     </MemberProvider>
     </AuthGate>
+  );
+}
+
+/**
+ * 관리자 메뉴. 로그인 정보는 로그인 화면을 통과한 뒤에야 정해지므로
+ * App이 처음 그려질 때가 아니라 이 컴포넌트가 화면에 붙을 때 확인한다.
+ */
+function AdminNavLink() {
+  if (!isAdmin()) return null;
+  return (
+    <NavLink to="/admin" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+      <IconServer />
+      관리자
+    </NavLink>
   );
 }
